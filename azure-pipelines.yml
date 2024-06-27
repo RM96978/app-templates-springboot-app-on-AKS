@@ -1,0 +1,54 @@
+trigger:
+- main
+
+variables:
+  azureSubscription: 'myAzureConnection'
+  acrName: 'myACRFIAP'
+  aksClusterName: 'myAKSCluster'
+  resourceGroup: 'myResourceGroup'
+  imageName: 'app-templates-springboot-app'
+
+stages:
+- stage: Build
+  jobs:
+  - job: Build
+    pool:
+      vmImage: 'ubuntu-latest'
+    steps:
+    - task: Maven@3
+      inputs:
+        mavenPomFile: 'pom.xml'
+        goals: 'package'
+
+    - task: Docker@2
+      inputs:
+        containerRegistry: '$(azureSubscription)'
+        repository: '$(acrName)/$(imageName)'
+        command: 'buildAndPush'
+        Dockerfile: '**/Dockerfile'
+        tags: |
+          $(Build.BuildId)
+
+- stage: Deploy
+  dependsOn: Build
+  jobs:
+  - deployment: Deploy
+    environment: 'aks'
+    pool:
+      vmImage: 'ubuntu-latest'
+    strategy:
+      runOnce:
+        deploy:
+          steps:
+          - task: Kubernetes@1
+            inputs:
+              azureSubscriptionEndpoint: '$(azureSubscription)'
+              azureResourceGroup: '$(resourceGroup)'
+              kubernetesCluster: '$(aksClusterName)'
+              namespace: 'default'
+              command: 'apply'
+              useConfigurationFile: true
+              configuration: 'manifests/deployment.yml'
+              secretType: 'dockerRegistry'
+              containerRegistryType: 'Azure Container Registry'
+              dockerRegistryEndpoint: '$(acrName)'
